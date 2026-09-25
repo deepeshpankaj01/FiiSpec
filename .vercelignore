@@ -1,0 +1,25 @@
+# Files the Vercel CLI must not upload. Vercel hosts only the Next.js web app;
+# the Firebase backend (functions, rules) deploys separately with the Firebase CLI.
+
+# Cloud Functions source and its secrets (ANTHROPIC_API_KEY lives in .secret.local)
+functions/
+
+# local env files: production values are set as Vercel environment variables
+.env
+.env*.local
+
+# local tooling, emulator state and logs
+.tools/
+.tmp/
+.emulator-data/
+.firebase/
+*-debug.log*
+npm-debug.log*
+
+# build and test artefacts
+.next/
+node_modules/
+test-results/
+playwright-report/
+coverage/
+*.tsbuildinfo

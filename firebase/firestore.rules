@@ -1,0 +1,134 @@
+rules_version = '2';
+
+// FiiSpec Firestore security rules.
+//
+// Principles:
+// - Deny by default. Clients never write directly: every mutation goes through a
+//   Cloud Function that validates input, enforces role/organisation and writes an
+//   audit log.
+// - Role and organisation come only from custom claims set server-side.
+// - Organisation isolation: analysis data is readable only by members of the
+//   owning organisation (platform admins may read analysis metadata and results
+//   for support, but never the raw input documents).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+    function claim(name) {
+      return request.auth.token.get(name, '');
+    }
+    function isAdmin() {
+      return signedIn() && claim('role') == 'ADMIN';
+    }
+    function inOrg(org) {
+      return signedIn() && claim('orgId') != '' && org == claim('orgId');
+    }
+    function hasRole(roles) {
+      return signedIn() && claim('role') in roles;
+    }
+    function published() {
+      return resource.data.lifecycle == 'PUBLISHED';
+    }
+
+    // ---- Profiles & organisations -------------------------------------------
+    match /users/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    match /organizations/{orgId} {
+      allow read: if inOrg(orgId) || isAdmin();
+      allow write: if false;
+
+      match /members/{memberId} {
+        allow read: if inOrg(orgId) || isAdmin();
+        allow write: if false;
+      }
+      // Join code: only procurement officers (and admins) of the organisation.
+      match /private/{docId} {
+        allow read: if inOrg(orgId) && hasRole(['PROCUREMENT_OFFICER', 'ADMIN']);
+        allow write: if false;
+      }
+    }
+
+    // ---- Analyses ------------------------------------------------------------
+    // List queries must filter on orgId == <caller org> to satisfy these rules.
+    match /analyses/{analysisId} {
+      allow read: if inOrg(resource.data.orgId) || isAdmin();
+      allow write: if false;
+
+      // Raw input (tender text / extracted document text): organisation only.
+      match /inputs/{docId} {
+        allow read: if inOrg(resource.data.orgId);
+        allow write: if false;
+      }
+      // results, graph, gaps, evidence, specifications, exports carry orgId.
+      match /{subcollection}/{docId} {
+        allow read: if subcollection != 'inputs' && (inOrg(resource.data.orgId) || isAdmin());
+        allow write: if false;
+      }
+    }
+
+    match /reviewTasks/{taskId} {
+      allow read: if inOrg(resource.data.orgId) || isAdmin();
+      allow write: if false;
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if isAdmin() || (resource.data.orgId != null && inOrg(resource.data.orgId));
+      allow write: if false;
+    }
+
+    match /feedback/{feedbackId} {
+      allow read: if isAdmin() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow write: if false;
+    }
+
+    // ---- Knowledge base (published records readable by signed-in users) -------
+    match /standards/{id} {
+      allow read: if signedIn() && (published() || isAdmin());
+      allow write: if false;
+    }
+    match /standardRelationships/{id} {
+      allow read: if signedIn() && (published() || isAdmin());
+      allow write: if false;
+    }
+    match /certificationRules/{id} {
+      allow read: if signedIn() && (published() || isAdmin());
+      allow write: if false;
+    }
+    match /productCategories/{id} {
+      allow read: if signedIn() && (published() || isAdmin());
+      allow write: if false;
+    }
+    match /benchmarkCases/{id} {
+      allow read: if signedIn() && (published() || isAdmin());
+      allow write: if false;
+    }
+
+    // ---- Administration only ---------------------------------------------------
+    match /benchmarkRuns/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+    match /ingestionRecords/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+    match /systemConfig/{id} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+    match /opsMetrics/{day} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // ---- Server-only collections (rateLimits, joinCodes, analysisJobs, …) ------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

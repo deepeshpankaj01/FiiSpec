@@ -1,0 +1,42 @@
+# dependencies
+node_modules/
+functions/node_modules/
+
+# builds
+.next/
+out/
+build/
+functions/lib/
+next-env.d.ts
+*.tsbuildinfo
+
+# firebase
+.firebase/
+firebase-debug.log*
+firestore-debug.log*
+storage-debug.log*
+ui-debug.log*
+database-debug.log*
+pubsub-debug.log*
+.emulator-data/
+functions/.secret.local
+functions/.env.local
+
+# env files (see .env.example)
+.env
+.env*.local
+
+# local tooling (portable JRE / Poppler used for emulators and PDF previews)
+.tools/
+.tmp/
+
+# tests
+test-results/
+playwright-report/
+coverage/
+
+# misc
+.DS_Store
+*.pem
+npm-debug.log*
+.vercel

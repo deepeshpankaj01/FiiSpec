@@ -1,0 +1,48 @@
+rules_version = '2';
+
+// FiiSpec Cloud Storage rules.
+// Uploaded tender documents are private to the owning organisation. An upload is
+// accepted only if it matches the analysis record created by the createAnalysis
+// function (same organisation, same uploader, status AWAITING_UPLOAD, exact path),
+// and only for PDF/DOCX up to 15 MB. Exports are written by Cloud Functions only.
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+    function inOrg(orgId) {
+      return signedIn() && request.auth.token.get('orgId', '') == orgId;
+    }
+    function analysis(analysisId) {
+      return firestore.get(/databases/(default)/documents/analyses/$(analysisId)).data;
+    }
+
+    match /organizations/{orgId}/analyses/{analysisId}/input/{fileName} {
+      allow read: if inOrg(orgId);
+      // `resource == null` forbids overwriting an existing upload regardless of how the operation is classified.
+      allow create: if inOrg(orgId)
+        && resource == null
+        && request.resource.size > 0
+        && request.resource.size <= 15 * 1024 * 1024
+        && request.resource.contentType in [
+          'application/pdf',
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        ]
+        && analysis(analysisId).orgId == orgId
+        && analysis(analysisId).createdBy == request.auth.uid
+        && analysis(analysisId).status == 'AWAITING_UPLOAD'
+        && analysis(analysisId).file.storagePath == request.resource.name;
+      allow update, delete: if false;
+    }
+
+    match /organizations/{orgId}/analyses/{analysisId}/exports/{fileName} {
+      allow read: if inOrg(orgId);
+      allow write: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
