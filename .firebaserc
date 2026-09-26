@@ -1,5 +1,6 @@
 {
   "projects": {
-    "default": "demo-fiispec"
+    "default": "demo-fiispec",
+    "production": "fiispec"
   }
 }

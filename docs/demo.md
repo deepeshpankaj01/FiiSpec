@@ -1,9 +1,9 @@
 # SIH judge demo
 
-**Setup (local):** `npm run emulators` → `npm run seed` → `npm run dev` → open http://localhost:3000.
+**Setup (local):** `npm install` → `npm run emulators` (Auth + Firestore) → `npm run seed` → `npm run dev` → open http://localhost:3000.
 Sign in as `officer@fiispec.demo` / `FiiSpec#2026`; the demo accounts are listed on the sign-in page in emulator mode.
 
-The whole flow runs through the real pipeline, with no pre-rendered results. Without an AI key the analysis is labelled **Deterministic only**. With `ANTHROPIC_API_KEY` configured in `functions/.secret.local`, the AI stages run and are labelled **AI-assisted**.
+The whole flow runs through the real pipeline, with no pre-rendered results. Without an AI key the analysis is labelled **Deterministic only**. With `ANTHROPIC_API_KEY` configured in `.env.local`, the AI stages run and are labelled **AI-assisted**.
 
 ## Flow (about 5 minutes)
 

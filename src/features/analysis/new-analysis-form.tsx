@@ -1,13 +1,12 @@
 'use client';
 
-import { ref, uploadBytesResumable } from 'firebase/storage';
 import { ChevronDown, FileText, FileUp, Lock, MessageSquareText, Sparkles, UploadCloud, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useId, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { CreateAnalysisSchema, type CreateAnalysisRequest } from '@shared/api';
 import type { InputMode, SectorId } from '@shared/constants';
-import { MAX_UPLOAD_BYTES, SECTOR_LABELS, SECTORS, SUPPORTED_UPLOAD_TYPES } from '@shared/constants';
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB, SECTOR_LABELS, SECTORS, SUPPORTED_UPLOAD_TYPES } from '@shared/constants';
 import { Field } from '@/components/fiispec/field';
 import { NativeSelect } from '@/components/fiispec/native-select';
 import { Button } from '@/components/ui/button';
@@ -15,15 +14,14 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Input } from '@/components/ui/input';
 import { Progress } from '@/components/ui/progress';
 import { Textarea } from '@/components/ui/textarea';
-import { api, friendlyError } from '@/lib/firebase/callables';
-import { getFirebase } from '@/lib/firebase/client';
+import { api, friendlyError, uploadDocument } from '@/lib/firebase/callables';
 import { formatBytes } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 const METHODS: { mode: InputMode; label: string; icon: typeof FileText; help: string }[] = [
   { mode: 'DESCRIPTION', label: 'Describe the product', icon: MessageSquareText, help: 'A sentence or two in plain language.' },
   { mode: 'SPECIFICATION', label: 'Paste a specification', icon: FileText, help: 'Technical specification or tender extract.' },
-  { mode: 'DOCUMENT', label: 'Upload a document', icon: FileUp, help: 'PDF or DOCX, up to 15 MB.' },
+  { mode: 'DOCUMENT', label: 'Upload a document', icon: FileUp, help: `PDF or DOCX, up to ${MAX_UPLOAD_MB} MB.` },
 ];
 
 const EXAMPLES = ['11 kW outdoor AC EV charger for public charging.', 'Mujhe public charging ke liye 11 kW EV charger ka tender banana hai.', '15 kW three phase induction motor, IE3, 415 V, 1500 rpm'];
@@ -31,7 +29,7 @@ const EXAMPLES = ['11 kW outdoor AC EV charger for public charging.', 'Mujhe pub
 export function validateFile(file: File): string | null {
   if (!(file.type in SUPPORTED_UPLOAD_TYPES)) return 'Unsupported format. Upload a PDF or DOCX file.';
   if (file.size === 0) return 'The file is empty.';
-  if (file.size > MAX_UPLOAD_BYTES) return `The file is ${formatBytes(file.size)}; the limit is 15 MB.`;
+  if (file.size > MAX_UPLOAD_BYTES) return `The file is ${formatBytes(file.size)}; the limit is ${MAX_UPLOAD_MB} MB.`;
   return null;
 }
 
@@ -91,10 +89,7 @@ export function NewAnalysisForm() {
       const { analysisId, uploadPath } = await api.createAnalysis(parsed.data);
       if (mode === 'DOCUMENT' && file && uploadPath) {
         setUploadProgress(0);
-        const task = uploadBytesResumable(ref(getFirebase().storage, uploadPath), file, { contentType: file.type });
-        await new Promise<void>((resolve, reject) => {
-          task.on('state_changed', (snap) => setUploadProgress(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)), reject, () => resolve());
-        });
+        await uploadDocument(uploadPath, file, setUploadProgress);
       }
       router.push(`/analysis/${analysisId}`);
     } catch (e) {
@@ -192,7 +187,7 @@ export function NewAnalysisForm() {
             >
               <UploadCloud className="mb-2 size-8 text-navy-700" aria-hidden />
               <p className="text-sm font-medium">Drag and drop a PDF or DOCX here</p>
-              <p className="text-xs text-muted-foreground">Text-based documents up to 15 MB. Scanned images are not yet supported.</p>
+              <p className="text-xs text-muted-foreground">Text-based documents up to {MAX_UPLOAD_MB} MB. Scanned images are not yet supported.</p>
               <Button type="button" variant="outline" className="mt-4" onClick={() => fileInput.current?.click()}>
                 Choose file
               </Button>

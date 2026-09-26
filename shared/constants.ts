@@ -1,6 +1,6 @@
 /**
  * FiiSpec shared domain constants.
- * Imported by the Next.js app (src/) and Cloud Functions (functions/src/).
+ * Imported by the Next.js app (src/) and the server API (server/src/).
  * Keep this file dependency-free.
  */
 
@@ -450,8 +450,9 @@ export const SUPPORTED_UPLOAD_TYPES = {
 } as const;
 export type SupportedUploadType = keyof typeof SUPPORTED_UPLOAD_TYPES;
 
-/** Upload size limit enforced by the client, Storage rules and the processing function. */
-export const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+/** Upload size limit enforced by the client and the upload route (Vercel caps request bodies at 4.5 MB). */
+export const MAX_UPLOAD_MB = 4;
+export const MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024;
 /** Maximum characters of specification text passed through the pipeline. */
 export const MAX_SPEC_TEXT_CHARS = 120_000;
 export const MIN_SPEC_TEXT_CHARS = 12;

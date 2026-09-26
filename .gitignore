@@ -1,12 +1,10 @@
 # dependencies
 node_modules/
-functions/node_modules/
 
 # builds
 .next/
 out/
 build/
-functions/lib/
 next-env.d.ts
 *.tsbuildinfo
 
@@ -19,8 +17,9 @@ ui-debug.log*
 database-debug.log*
 pubsub-debug.log*
 .emulator-data/
-functions/.secret.local
-functions/.env.local
+
+# credentials (Firebase service account key for local seeding/admin scripts)
+.secrets/
 
 # env files (see .env.example)
 .env

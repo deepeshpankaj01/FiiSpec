@@ -1,0 +1,6 @@
+{
+  "name": "fiispec-server",
+  "private": true,
+  "description": "FiiSpec server API, served by the Next.js route handlers in src/app/api. Dependencies live in the root package.json.",
+  "type": "module"
+}

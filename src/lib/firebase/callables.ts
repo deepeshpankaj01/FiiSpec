@@ -1,9 +1,11 @@
 /**
- * Typed wrappers around callable Cloud Functions. Request payload types come
- * from the shared Zod schemas, so the client and server stay in sync.
+ * Typed wrappers around the server API (POST /api/fn/{name}, see
+ * src/app/api). Request payload types come from the shared Zod schemas, so the
+ * client and server stay in sync. Errors surface as FirebaseError with
+ * `functions/<code>` codes, as with Firebase callable functions.
  */
 import { FirebaseError } from 'firebase/app';
-import { httpsCallable } from 'firebase/functions';
+import { getToken } from 'firebase/app-check';
 import type { z } from 'zod';
 import type {
   AdminIngestionDecisionSchema,
@@ -65,12 +67,67 @@ export function withoutUndefined<T>(value: T): T {
   return value;
 }
 
+/** The server API allows 300 s per request (Vercel maxDuration). */
+const REQUEST_TIMEOUT_MS = 300_000;
+
+async function authHeaders(): Promise<Record<string, string>> {
+  const { auth, appCheck } = getFirebase();
+  const headers: Record<string, string> = {};
+  const idToken = await auth.currentUser?.getIdToken();
+  if (idToken) headers.Authorization = `Bearer ${idToken}`;
+  if (appCheck) headers['X-Firebase-AppCheck'] = (await getToken(appCheck)).token;
+  return headers;
+}
+
+/** Turn an API response body into its result, or throw the FirebaseError it describes. */
+function unwrap<Res>(status: number, body: unknown): Res {
+  const payload = (body ?? {}) as { result?: Res; error?: { code?: string; message?: string } };
+  if (status >= 200 && status < 300 && 'result' in payload) return payload.result as Res;
+  throw new FirebaseError(`functions/${payload.error?.code ?? 'internal'}`, payload.error?.message ?? 'Request failed');
+}
+
 function callable<Req, Res>(name: string) {
   return async (data: Req): Promise<Res> => {
-    const fn = httpsCallable<Req, Res>(getFirebase().functions, name, { timeout: 540_000 });
-    const result = await fn(withoutUndefined(data));
-    return result.data;
+    let response: Response;
+    try {
+      response = await fetch(`/api/fn/${name}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
+        body: JSON.stringify({ data: withoutUndefined(data) }),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'TimeoutError') throw new FirebaseError('functions/deadline-exceeded', 'Request timed out');
+      throw new FirebaseError('functions/unavailable', 'Network request failed');
+    }
+    return unwrap<Res>(response.status, await response.json().catch(() => null));
   };
+}
+
+/** Send a tender document to the upload path returned by createAnalysis, reporting progress (0–100). */
+export async function uploadDocument(path: string, file: File, onProgress: (percent: number) => void): Promise<void> {
+  const headers = await authHeaders();
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('PUT', path);
+    xhr.timeout = REQUEST_TIMEOUT_MS;
+    for (const [key, value] of Object.entries(headers)) xhr.setRequestHeader(key, value);
+    xhr.setRequestHeader('Content-Type', file.type);
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100));
+    };
+    xhr.onload = () => {
+      try {
+        unwrap(xhr.status, JSON.parse(xhr.responseText || 'null'));
+        resolve();
+      } catch (error) {
+        reject(error instanceof FirebaseError ? error : new FirebaseError('functions/internal', 'Upload failed'));
+      }
+    };
+    xhr.onerror = () => reject(new FirebaseError('functions/unavailable', 'Network request failed'));
+    xhr.ontimeout = () => reject(new FirebaseError('functions/deadline-exceeded', 'Upload timed out'));
+    xhr.send(file);
+  });
 }
 
 type In<T extends z.ZodType> = z.input<T>;
@@ -92,7 +149,7 @@ export const api = {
   generateProcurementSpecification: callable<In<typeof AnalysisRefSchema>, { specId: string }>('generateProcurementSpecification'),
   saveSpecificationDraft: callable<In<typeof SaveSpecificationSchema>, { ok: true }>('saveSpecificationDraft'),
   approveSpecification: callable<In<typeof ApproveSpecificationSchema>, { ok: true }>('approveSpecification'),
-  exportReport: callable<In<typeof ExportReportSchema>, { fileName: string; mimeType: string; contentBase64: string; storagePath: string }>('exportReport'),
+  exportReport: callable<In<typeof ExportReportSchema>, { fileName: string; mimeType: string; contentBase64: string }>('exportReport'),
   searchStandards: callable<In<typeof SearchStandardsSchema>, { hits: StandardSearchHit[]; total: number }>('searchStandards'),
 
   adminUpsertStandard: callable<In<typeof AdminUpsertStandardSchema>, { created: boolean }>('adminUpsertStandard'),
@@ -124,9 +181,6 @@ const FRIENDLY: Record<string, string> = {
   'auth/network-request-failed': 'Network error. Check your connection and try again.',
   'auth/popup-closed-by-user': 'Sign-in was cancelled.',
   'auth/operation-not-allowed': 'This sign-in method is not enabled for this project.',
-  'storage/unauthorized': 'The upload was rejected. Check the file type (PDF or DOCX) and size (up to 15 MB).',
-  'storage/canceled': 'The upload was cancelled.',
-  'storage/retry-limit-exceeded': 'The upload failed after several attempts. Check your connection.',
   'permission-denied': 'You do not have access to this information.',
 };
 

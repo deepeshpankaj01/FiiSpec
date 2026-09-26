@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Runs a command with a Java runtime on PATH. The Firestore and Storage
-// emulators need Java 11+; if none is installed, a portable JRE placed in
+// Runs a command with a Java runtime on PATH. The Firestore emulator
+// needs Java 11+; if none is installed, a portable JRE placed in
 // .tools/ (see docs/deployment.md) is used automatically.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
@@ -9,8 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const tools = join(root, '.tools');
-// Slow machines can exceed the default 10 s functions discovery timeout while the Java emulators start.
-const env = { FUNCTIONS_DISCOVERY_TIMEOUT: '30', ...process.env };
+const env = { ...process.env };
 
 const hasJava = spawnSync('java', ['-version'], { stdio: 'ignore', shell: true }).status === 0;
 if (!hasJava && existsSync(tools)) {

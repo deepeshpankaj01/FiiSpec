@@ -18,6 +18,12 @@ const nextConfig: NextConfig = {
   experimental: {
     optimizePackageImports: ['lucide-react', '@xyflow/react'],
   },
+  // Server API dependencies (server/src) that read their own files at runtime; loaded with require() instead of bundled.
+  serverExternalPackages: ['pdfkit', 'mammoth', 'unpdf', 'docx'],
+  outputFileTracingIncludes: {
+    // pdfkit loads its standard-font metrics (.afm) from disk when rendering PDF exports.
+    '/api/fn/*': ['./node_modules/pdfkit/js/data/**/*'],
+  },
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders }];
   },

@@ -2,14 +2,12 @@
  * Firebase Web SDK initialisation (browser only). Uses the local emulator
  * suite when NEXT_PUBLIC_USE_EMULATORS=true. No secrets live here: Firebase
  * web config values are public identifiers; privileged credentials stay in
- * Cloud Functions (Secret Manager).
+ * the server API's environment (src/app/api).
  */
 import { type FirebaseApp, getApps, initializeApp } from 'firebase/app';
-import { initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
+import { type AppCheck, initializeAppCheck, ReCaptchaEnterpriseProvider } from 'firebase/app-check';
 import { type Auth, connectAuthEmulator, getAuth } from 'firebase/auth';
 import { connectFirestoreEmulator, type Firestore, getFirestore } from 'firebase/firestore';
-import { connectFunctionsEmulator, type Functions, getFunctions } from 'firebase/functions';
-import { connectStorageEmulator, type FirebaseStorage, getStorage } from 'firebase/storage';
 
 const config = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY ?? 'demo-api-key',
@@ -21,15 +19,14 @@ const config = {
 };
 
 export const USE_EMULATORS = process.env.NEXT_PUBLIC_USE_EMULATORS === 'true' || config.projectId.startsWith('demo-');
-export const FUNCTIONS_REGION = process.env.NEXT_PUBLIC_FUNCTIONS_REGION ?? 'asia-south1';
 const EMULATOR_HOST = process.env.NEXT_PUBLIC_EMULATOR_HOST ?? '127.0.0.1';
 
 export interface FirebaseServices {
   app: FirebaseApp;
   auth: Auth;
   db: Firestore;
-  storage: FirebaseStorage;
-  functions: Functions;
+  /** Set when App Check is configured; its token accompanies every server API call. */
+  appCheck: AppCheck | null;
 }
 
 let services: FirebaseServices | null = null;
@@ -41,24 +38,21 @@ export function getFirebase(): FirebaseServices {
   const app = getApps()[0] ?? initializeApp(config);
   const auth = getAuth(app);
   const db = getFirestore(app);
-  const storage = getStorage(app);
-  const functions = getFunctions(app, FUNCTIONS_REGION);
+  let appCheck: AppCheck | null = null;
 
   if (USE_EMULATORS) {
     connectAuthEmulator(auth, `http://${EMULATOR_HOST}:9099`, { disableWarnings: true });
     connectFirestoreEmulator(db, EMULATOR_HOST, 8080);
-    connectStorageEmulator(storage, EMULATOR_HOST, 9199);
-    connectFunctionsEmulator(functions, EMULATOR_HOST, 5001);
   } else if (process.env.NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY) {
-    // App Check protects callable functions and Firebase APIs from non-app traffic.
+    // App Check protects the server API and Firebase APIs from non-app traffic.
     const debugToken = process.env.NEXT_PUBLIC_APPCHECK_DEBUG_TOKEN;
     if (debugToken) (self as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN: string }).FIREBASE_APPCHECK_DEBUG_TOKEN = debugToken;
-    initializeAppCheck(app, {
+    appCheck = initializeAppCheck(app, {
       provider: new ReCaptchaEnterpriseProvider(process.env.NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY),
       isTokenAutoRefreshEnabled: true,
     });
   }
 
-  services = { app, auth, db, storage, functions };
+  services = { app, auth, db, appCheck };
   return services;
 }

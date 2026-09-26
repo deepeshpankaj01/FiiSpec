@@ -1,6 +1,6 @@
 # AI pipeline
 
-FiiSpec combines **semantic AI + structured metadata + a knowledge graph + deterministic rules + evidence**. No single model call decides the outcome. The engine (`functions/src/engine/`) is pure TypeScript, so the same code runs in Cloud Functions, in unit tests and in the benchmark runner.
+FiiSpec combines **semantic AI + structured metadata + a knowledge graph + deterministic rules + evidence**. No single model call decides the outcome. The engine (`server/src/engine/`) is pure TypeScript, so the same code runs in the server API, in unit tests and in the benchmark runner.
 
 ## Stages
 
@@ -73,7 +73,7 @@ Non-English input without AI normalisation is flagged, and abstains when no Engl
 
 ## Prompts and models
 
-Prompts live in `functions/src/ai/prompts/`. Each has an id, a semantic **version**, an effort level, a system prompt with shared safety rules, and a Zod output schema.
+Prompts live in `server/src/ai/prompts/`. Each has an id, a semantic **version**, an effort level, a system prompt with shared safety rules, and a Zod output schema.
 
 - **Registry:** published to `systemConfig/prompts`.
 - **Trace:** every analysis records the prompt versions and each call's outcome in its trace.

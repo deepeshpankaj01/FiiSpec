@@ -48,18 +48,18 @@ The four information classes:
 ## Architecture
 
 ```
-Browser (Next.js 16 on Firebase App Hosting)
+Browser (Next.js 16 on Vercel)
    │  Firebase Auth (email/password, Google) · App Check (reCAPTCHA Enterprise)
    ▼
-Cloud Functions (2nd gen, Node 22, asia-south1)
-   ├─ Callable API: createAnalysis, generateProcurementSpecification, exportReport, reviews, admin…
-   ├─ Firestore trigger: analysisJobs/{id} → 9-stage pipeline (idempotent job claim)
-   ├─ Storage trigger: uploaded PDF/DOCX → validation (magic bytes) → text/table extraction
-   └─ Scheduler: stale-analysis sweeper (timeouts, expired uploads)
+Server API (Next.js route handlers on Vercel, bom1, Node runtime)
+   ├─ POST /api/fn/{name}: 25 callables (createAnalysis, generateProcurementSpecification, exportReport, reviews, admin…)
+   ├─ Background job (after the response): analysisJobs/{id} → 9-stage pipeline (idempotent job claim)
+   ├─ PUT /api/analyses/{id}/document: PDF/DOCX ≤ 4 MB → validation (magic bytes) → text/table extraction
+   └─ GET /api/cron/sweep: daily stale-analysis sweeper (timeouts, expired uploads)
    ▼
-Cloud Firestore (org-isolated data, knowledge base, audit log) · Cloud Storage (private uploads, exports)
+Cloud Firestore (asia-south1; org-isolated data, knowledge base, audit log)
    ▼
-Claude (Anthropic API) via Secret Manager: optional; deterministic fallback when unavailable
+Claude (Anthropic API, key in a server-side environment variable): optional; deterministic fallback when unavailable
 ```
 
 See [docs/architecture.md](docs/architecture.md), [docs/data-model.md](docs/data-model.md), [docs/ai-pipeline.md](docs/ai-pipeline.md), [docs/security.md](docs/security.md), [docs/deployment.md](docs/deployment.md) and [docs/demo.md](docs/demo.md).
@@ -67,7 +67,7 @@ See [docs/architecture.md](docs/architecture.md), [docs/data-model.md](docs/data
 ## Tech stack
 
 - **Web:** Next.js 16 (App Router, Turbopack), React 19, TypeScript (strict), Tailwind CSS 4, shadcn/ui (Base UI primitives), React Hook Form, Zod, React Flow (`@xyflow/react`), Lucide icons, Sonner.
-- **Backend:** Firebase Authentication, Cloud Firestore, Cloud Storage, Cloud Functions v2 (`firebase-functions` 7), Firebase Admin SDK, App Check, App Hosting.
+- **Backend:** Firebase Authentication, Cloud Firestore, Firebase Admin SDK and App Check (Firebase Spark plan); server API as Next.js route handlers on Vercel (Hobby), with Vercel Cron.
 - **AI:** Anthropic TypeScript SDK with structured outputs (`messages.parse` + Zod), server-side refusal fallback, seven versioned prompts.
 - **Documents and reports:** unpdf (PDF text), mammoth (DOCX text and tables), pdfkit (PDF reports), docx (Word reports).
 - **Testing:** Vitest (unit, rules, integration), Testing Library (web), `@firebase/rules-unit-testing`, Playwright (E2E).
@@ -75,60 +75,66 @@ See [docs/architecture.md](docs/architecture.md), [docs/data-model.md](docs/data
 ## Repository layout
 
 ```
-shared/                 Domain types, constants and Zod schemas shared by web and functions
+shared/                 Domain types, constants and Zod schemas shared by web and server
 src/
-  app/                  Routes: (marketing) public site · (auth) sign-in · (app) workspace · admin
+  app/                  Routes: (marketing) public site · (auth) sign-in · (app) workspace · admin · api/ (server API routes)
   components/           ui/ (shadcn) · fiispec/ (badges, fields) · layout/ · brand/
   features/             analysis/ (forms, results tabs) · graph/ · auth/ · admin/
   lib/                  firebase client, typed callables, realtime hooks, formatting
-functions/
+server/                 Server API library, imported by src/app/api via @server/* (no separate install or build)
   src/engine/           Pure pipeline: extraction, retrieval (BM25), scoring, graph, versions,
                         certification, gaps, evidence, spec generation, benchmark
   src/ai/               Provider abstraction, Claude client, versioned prompts
-  src/analysis/ …       Callables and triggers (analysis, documents, workflow, reports, admin, orgs)
+  src/analysis/ …       Callables and background jobs (analysis, documents, workflow, reports, admin, orgs)
+  src/http/             HTTP handlers: token verification, callable protocol, document upload, cron
   src/seed/             Curated benchmark dataset (validated at load)
   scripts/              seed, grant-admin, run-benchmarks, render-sample-report
   tests/                unit/ · rules/ (Security Rules) · integration/ (emulator end-to-end)
-firebase/               firestore.rules · storage.rules · firestore.indexes.json
+firebase/               firestore.rules · firestore.indexes.json
+vercel.json             Vercel region (bom1) and daily cron
 e2e/                    Playwright judge-demo flow
 docs/                   Architecture, data model, AI pipeline, security, deployment, demo
 ```
 
 ## Firebase setup
 
-1. Create a Firebase project on the **Blaze** plan (needed for Cloud Functions, Secret Manager and the scheduler).
+1. Create a Firebase project on the free **Spark** plan (only Authentication and Firestore are used).
 2. Enable **Authentication** with the Email/Password and Google providers.
-3. Create **Cloud Firestore** (production mode) and **Cloud Storage** (default bucket).
-4. Register a **Web app** and copy its config into `apphosting.yaml` (production) or `.env.local`.
-5. **App Check:** register the web app with reCAPTCHA Enterprise, set `NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY`, then set `ENFORCE_APP_CHECK=true` in `functions/.env.<projectId>`.
-6. **AI key (optional):** `firebase functions:secrets:set ANTHROPIC_API_KEY`. Without it, FiiSpec runs in deterministic-only mode and labels every analysis accordingly.
+3. Create **Cloud Firestore** (production mode, `asia-south1`).
+4. Register a **Web app** and copy its config into the Vercel project's environment variables (production) or `.env.local`.
+5. **Admin credentials:** generate a service-account key (Project settings → Service accounts) and set it as `FIREBASE_SERVICE_ACCOUNT_KEY` on Vercel.
+6. **App Check:** register the web app with reCAPTCHA Enterprise, set `NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY`, then set `ENFORCE_APP_CHECK=true` on the server.
+7. **AI key (optional):** set `ANTHROPIC_API_KEY` on the server. Without it, FiiSpec runs in deterministic-only mode and labels every analysis accordingly.
 
 ## Environment variables
 
 | Where | Variable | Purpose |
 |---|---|---|
-| Web (`.env.local` / `apphosting.yaml`) | `NEXT_PUBLIC_FIREBASE_API_KEY`, `…_AUTH_DOMAIN`, `…_PROJECT_ID`, `…_STORAGE_BUCKET`, `…_APP_ID`, `…_MESSAGING_SENDER_ID` | Firebase web config (public identifiers) |
-| Web | `NEXT_PUBLIC_FUNCTIONS_REGION` | Callable region (default `asia-south1`) |
-| Web | `NEXT_PUBLIC_USE_EMULATORS` | `true` for local development against the emulator suite |
+| Web (`.env.local` / Vercel) | `NEXT_PUBLIC_FIREBASE_API_KEY`, `…_AUTH_DOMAIN`, `…_PROJECT_ID`, `…_STORAGE_BUCKET`, `…_APP_ID`, `…_MESSAGING_SENDER_ID` | Firebase web config (public identifiers) |
+| Web | `NEXT_PUBLIC_USE_EMULATORS` | `true` for local development against the emulator suite (the server's Admin SDK follows it) |
 | Web | `NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY` | App Check site key (public) |
-| Functions (`functions/.env`) | `AI_MODEL` | Claude model id (default `claude-opus-5`) |
-| Functions | `ENFORCE_APP_CHECK` | `true` to reject callable requests without a valid App Check token |
-| Functions secret | `ANTHROPIC_API_KEY` | Claude API key (Secret Manager; local: `functions/.secret.local`) |
+| Server (`.env.local` / Vercel; never `NEXT_PUBLIC_`) | `FIREBASE_SERVICE_ACCOUNT_KEY` | Service-account JSON (raw or base64) for the Admin SDK; not needed with the emulators |
+| Server | `ANTHROPIC_API_KEY` | Claude API key (optional; unset or `not-configured` = deterministic-only) |
+| Server | `AI_MODEL` | Claude model id (default `claude-opus-5`) |
+| Server | `ENFORCE_APP_CHECK` | `true` to reject API requests without a valid App Check token |
+| Server | `CRON_SECRET` | Bearer secret for `/api/cron/sweep` (sent by Vercel Cron) |
+| Server | `PIPELINE_DEADLINE_MS` | Optional pipeline deadline (default 250000) |
 
 Copy `.env.example` to `.env.local` for local development. No secret ever reaches the browser.
 
 ## Local development
 
-Prerequisites: Node.js 22+ (24 works), Firebase CLI 15+, and Java 11+ for the Firestore and Storage emulators. If Java is not installed, place a portable JRE in `.tools/` (e.g. `.tools/jdk-21…-jre`); `scripts/with-java.mjs` finds it automatically.
+Prerequisites: Node.js 22+ (24 works), Firebase CLI 15+, and Java 11+ for the Firestore emulator. If Java is not installed, place a portable JRE in `.tools/` (e.g. `.tools/jdk-21…-jre`); `scripts/with-java.mjs` finds it automatically.
 
 ```bash
-npm install && npm --prefix functions install
-cp .env.example .env.local                                   # emulator configuration
-cp functions/.secret.local.example functions/.secret.local   # optional: add ANTHROPIC_API_KEY
-npm run emulators      # terminal 1: builds functions, starts Auth, Firestore, Storage, Functions (UI on :4000)
+npm install            # one install for web and server
+cp .env.example .env.local   # emulator configuration; optional: add ANTHROPIC_API_KEY
+npm run emulators      # terminal 1: Auth and Firestore emulators (UI on :4000)
 npm run seed           # once: loads the knowledge base and demo users into the emulator
-npm run dev            # terminal 2: http://localhost:3000
+npm run dev            # terminal 2: web app and API on http://localhost:3000
 ```
+
+To run the stale-analysis sweeper locally, set `CRON_SECRET` in `.env.local` (and in your shell) and call `curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/sweep`.
 
 Demo accounts (emulator only, password `FiiSpec#2026`):
 - `officer@fiispec.demo`: Procurement Officer
@@ -142,10 +148,10 @@ The demo organisation's join code is `DEMO-2026`.
 
 ```bash
 npm run lint             # ESLint (Next.js + TypeScript rules)
-npm run typecheck        # Next typegen + tsc for web and functions
-npm run test             # web unit tests + functions unit tests (engine, AI-safety, permissions, data honesty)
-npm run test:rules       # Firestore + Storage Security Rules (emulator)
-npm run test:integration # end-to-end backend flow on the full emulator suite
+npm run typecheck        # Next typegen + tsc for web and server
+npm run test             # web unit tests + server unit tests (engine, AI-safety, permissions, data honesty, HTTP layer)
+npm run test:rules       # Firestore Security Rules (emulator)
+npm run test:integration # end-to-end backend flow through the real HTTP handlers (Auth + Firestore emulators)
 npm run test:e2e         # Playwright judge demo flow (requires emulators + seed + dev server)
 npm run build            # production build
 npm run benchmarks       # run the pipeline over the benchmark cases (deterministic)
@@ -153,24 +159,25 @@ npm run benchmarks       # run the pipeline over the benchmark cases (determinis
 
 ## Deployment
 
+Firebase (Spark: Auth + Firestore in `asia-south1`) holds the data; Vercel hosts the web app and API.
+
 ```bash
-firebase use --add                                   # select your project
-firebase functions:secrets:set ANTHROPIC_API_KEY     # optional
-firebase deploy --only firestore,storage,functions   # rules, indexes, functions
-GCLOUD_PROJECT=<id> npm --prefix functions run seed -- --kb-only   # knowledge base (ADC credentials)
-npm --prefix functions run grant-admin -- --email you@example.gov.in
-firebase apphosting:backends:create                  # connect the GitHub repo; App Hosting builds on push
+firebase deploy --only firestore --project production   # rules and indexes (alias in .firebaserc)
+export GOOGLE_APPLICATION_CREDENTIALS=.secrets/firebase-admin.json GCLOUD_PROJECT=<id>
+npm run seed:production                               # knowledge base
+npm run grant-admin -- --email you@example.gov.in       # first administrator
+vercel --prod                                           # web app + API, after setting the environment variables
 ```
 
-The full checklist, including App Check, CORS-free exports and the Storage→Firestore rules permission, is in [docs/deployment.md](docs/deployment.md).
+Then add the Vercel domain to Firebase Authentication's authorised domains. The full checklist, including environment variables, App Check and the cron secret, is in [docs/deployment.md](docs/deployment.md).
 
 ## Security
 
 - Roles and organisation membership live only in server-set custom claims.
-- Firestore and Storage rules deny by default; clients never write directly (every mutation is a validated, audited callable).
+- Firestore rules deny by default; clients never write directly (every mutation is a validated, audited API call).
 - Organisations are isolated. Admins can read analysis metadata for support but never raw tender inputs.
-- Uploads are restricted to the declared path, creator, type and size, with no overwrite; they are then validated by magic bytes.
-- Per-user rate limits, App Check, secrets in Secret Manager, structured logs without document content, and an append-only audit log.
+- Uploads are accepted only from the analysis creator, in the same organisation, while it awaits its document, with the declared type and ≤ 4 MB, once only; they are then validated by magic bytes, and the original file is not kept.
+- Per-user rate limits, App Check, secrets in server-side environment variables (never `NEXT_PUBLIC_`), structured logs without document content, and an append-only audit log.
 
 See [docs/security.md](docs/security.md).
 
@@ -205,7 +212,11 @@ See [docs/ai-pipeline.md](docs/ai-pipeline.md).
 - **Retrieval scale.** Retrieval is in-memory BM25 over curated metadata, which is suitable for thousands of records. Vector search is the documented upgrade path.
 - **No OCR yet.** Scanned PDFs are rejected with guidance.
 - **Latin-only PDFs.** PDF export uses standard fonts, so non-Latin quotes are marked in the PDF; the DOCX export preserves them.
-- **No scheduler in local testing.** The stale-analysis sweeper needs Cloud Scheduler, so it does not run in the local emulator (no Pub/Sub emulator).
+- **4 MB uploads.** Vercel caps function request bodies at 4.5 MB, so documents are limited to 4 MB.
+- **Original documents are not retained.** Only the extracted text, tables and metadata (including a SHA-256 hash) are stored; to change a document, start a new analysis.
+- **Daily sweeper.** The Vercel Hobby plan allows only daily cron jobs, so stuck analyses are marked failed once a day. A run with no progress for 10 minutes can be retried immediately.
+- **~250 s per analysis run.** Long AI runs on large documents may time out; retry, or use a smaller document or deterministic mode.
+- **Spark plan quotas.** The Firestore free tier (50K reads / 20K writes per day) is enough for demos, not for production scale.
 
 ---
 

@@ -1,10 +1,8 @@
-# Files the Vercel CLI must not upload. Vercel hosts only the Next.js web app;
-# the Firebase backend (functions, rules) deploys separately with the Firebase CLI.
+# Files the Vercel CLI must not upload. Vercel builds the Next.js app, which
+# includes the server API in server/; Firestore rules deploy with the Firebase CLI.
 
-# Cloud Functions source and its secrets (ANTHROPIC_API_KEY lives in .secret.local)
-functions/
-
-# local env files: production values are set as Vercel environment variables
+# credentials and local env files: production values are Vercel environment variables
+.secrets/
 .env
 .env*.local
 

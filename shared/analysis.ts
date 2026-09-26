@@ -104,6 +104,7 @@ export interface UploadedFileInfo {
   name: string;
   size: number;
   contentType: string;
+  /** Logical document path, used as the audit target. The file is read on upload and not retained. */
   storagePath: string;
 }
 

@@ -9,6 +9,7 @@ import {
   LIFECYCLE_STATES,
   MAX_SPEC_TEXT_CHARS,
   MAX_UPLOAD_BYTES,
+  MAX_UPLOAD_MB,
   MIN_SPEC_TEXT_CHARS,
   ORG_ASSIGNABLE_ROLES,
   SECTORS,
@@ -84,7 +85,7 @@ export const UploadDescriptorSchema = z.object({
     .min(1)
     .max(200)
     .regex(/^[^/\\?%*:|"<>]+$/, 'File name contains unsupported characters'),
-  size: z.number().int().positive().max(MAX_UPLOAD_BYTES, 'File exceeds the 15 MB limit'),
+  size: z.number().int().positive().max(MAX_UPLOAD_BYTES, `File exceeds the ${MAX_UPLOAD_MB} MB limit`),
   contentType: z.enum(Object.keys(SUPPORTED_UPLOAD_TYPES) as [keyof typeof SUPPORTED_UPLOAD_TYPES, ...(keyof typeof SUPPORTED_UPLOAD_TYPES)[]]),
 });
 
